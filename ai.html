@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>زيكو - نظام تشغيل الروبوت الذكي (AI Robot OS)</title>
+  <!-- Tailwind CSS للتصميم المتجاوب والعصري -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+    body, html {
+      width: 100vw;
+      height: 100vh;
+      background-color: #04070b;
+      overflow: hidden;
+      font-family: 'Cairo', sans-serif;
+      touch-action: none;
+    }
+    #robotCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: grab;
+    }
+    #robotCanvas:active {
+      cursor: grabbing;
+    }
+    /* عناصر الكاميرا للمعالجة في الخلفية */
+    #motionCanvas {
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      width: 64px;
+      height: 48px;
+      opacity: 0;
+      pointer-events: none;
+    }
+    /* تأثيرات النيون والزجاج */
+    .glass-panel {
+      background: rgba(8, 17, 28, 0.78);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(0, 240, 255, 0.28);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 15px rgba(0, 240, 255, 0.12);
+    }
+    .neon-btn {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .neon-btn:active {
+      transform: scale(0.92);
+    }
+    .neon-btn.active {
+      background: rgba(0, 240, 255, 0.28);
+      border-color: #00f0ff;
+      box-shadow: 0 0 18px rgba(0, 240, 255, 0.55);
+    }
+    .neon-btn.listening-active {
+      background: rgba(255, 51, 102, 0.3);
+      border-color: #ff3366;
+      box-shadow: 0 0 20px rgba(255, 51, 102, 0.7);
+      animation: pulseRed 1.2s infinite;
+    }
+    @keyframes pulseRed {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
+    /* شريط التمرير المخصص */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 240, 255, 0.4);
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="relative text-white select-none">
+
+  <!-- لوحة رسم وجه الروبوت التفاعلي 60FPS -->
+  <canvas id="robotCanvas"></canvas>
+
+  <!-- كانفاس تحليل الحركة الخفي -->
+  <canvas id="motionCanvas" width="64" height="48"></canvas>
+
+  <!-- شريط المعلومات العلوي وأزرار التحكم السريعة -->
+  <div class="fixed top-3 inset-x-3 flex items-center justify-between z-30 pointer-events-none">
+    
+    <!-- مؤشر حالة الروبوت وESP32 -->
+    <div class="glass-panel px-3 py-1.5 rounded-2xl flex items-center gap-2.5 pointer-events-auto">
+      <span id="stateDot" class="w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_10px_#00f0ff] transition-colors"></span>
+      <div class="text-xs leading-tight">
+        <div class="font-bold text-cyan-300 flex items-center gap-1">
+          <span id="botNameBadge">زيكو AI</span>
+          <span id="emotionBadge" class="text-[10px] bg-cyan-950/80 text-cyan-200 px-1.5 py-0.5 rounded-md border border-cyan-500/30">طبيعي</span>
+        </div>
+        <div class="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+          <span>ESP:</span>
+          <span id="espCommandBadge" class="text-emerald-400 font-mono font-bold">جاهز (IDLE)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- أزرار التحكم العلوية -->
+    <div class="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
+      <!-- زر المايكروفون -->
+      <button id="micBtn" class="neon-btn glass-panel w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-lg" title="تحدث بالصوت">
+        🎤
+      </button>
+
+      <!-- زر الكاميرا والرؤية التلقائية -->
+      <button id="camBtn" class="neon-btn glass-panel w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-lg" title="تفعيل الكاميرا والرؤية الذكية">
+        👁️
+      </button>
+
+      <!-- زر لقطة فورية لتحليل المشهد بالكاميرا -->
+      <button id="snapBtn" class="neon-btn glass-panel hidden px-3 h-10 sm:h-11 rounded-full items-center justify-center gap-1 text-xs font-bold text-cyan-300 border border-cyan-400/40" title="خلي الروبوت يشوفك ويعلق دلوقتي">
+        <span>📸</span>
+        <span class="hidden sm:inline">شوفني!</span>
+      </button>
+
+      <!-- زر إظهار/إخفاء لوحة الدردشة والاختبار -->
+      <button id="chatToggleBtn" class="neon-btn glass-panel w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-lg active" title="لوحة التفاعل السريع">
+        💬
+      </button>
+
+      <!-- زر تحميل الكود كملف مستقل للموبايل -->
+      <button id="downloadHtmlBtn" class="neon-btn glass-panel px-3 h-10 sm:h-11 rounded-full flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-300 border border-emerald-400/40 hover:bg-emerald-500/20" title="تحميل ملف الروبوت على الموبايل">
+        <span>💾</span>
+        <span class="hidden md:inline">تحميل HTML</span>
+      </button>
+
+      <!-- زر ملء الشاشة -->
+      <button id="fsBtn" class="neon-btn glass-panel w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-base" title="ملء الشاشة">
+        ⛶
+      </button>
+
+      <!-- زر الإعدادات -->
+      <button id="settingsBtn" class="neon-btn glass-panel w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-lg" title="الإعدادات">
+        ⚙️
+      </button>
+    </div>
+  </div>
+
+  <!-- نافذة صغيرة لمعاينة الكاميرا عند تفعيلها + مؤشر الحركة -->
+  <div id="cameraPipContainer" class="fixed top-16 left-3 z-20 hidden flex-col items-center glass-panel p-1.5 rounded-2xl border border-cyan-400/40">
+    <div class="relative w-24 h-18 sm:w-28 sm:h-20 rounded-xl overflow-hidden bg-black">
+      <video id="hiddenVideo" autoplay playsinline muted class="w-full h-full object-cover transform scale-x-[-1]"></video>
+      <div id="motionIndicator" class="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-slate-500 transition-colors"></div>
+    </div>
+    <span class="text-[10px] text-cyan-300 mt-1 font-bold">عين زيكو الذكية 👁️</span>
+  </div>
+
+  <!-- شريط طاقة الزغزغة (يظهر أثناء الزغزغة) -->
+  <div id="tickleMeterWrap" class="fixed top-16 right-3 z-20 opacity-0 transition-opacity duration-300 pointer-events-none glass-panel px-3 py-1.5 rounded-xl flex items-center gap-2">
+    <span class="text-xs">🪶 زغزغة:</span>
+    <div class="w-20 h-2 bg-slate-800 rounded-full overflow-hidden">
+      <div id="tickleMeterBar" class="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 w-0 transition-all duration-75"></div>
+    </div>
+  </div>
+
+  <!-- منطقة النص المنطوق / رسائل الروبوت المباشرة -->
+  <div class="fixed bottom-28 inset-x-4 flex flex-col items-center pointer-events-none z-20">
+    <div id="statusBar" class="glass-panel px-5 py-2.5 rounded-3xl text-sm sm:text-base font-bold text-cyan-100 text-center max-w-xl transition-all duration-300 shadow-lg">
+      المس الشاشة وحرك صباعك بسرعة عشان تزغزغني، أو كلمني! 🤖✨
+    </div>
+  </div>
+
+  <!-- لوحة الدردشة والأزرار التفاعلية السفلية (تعمل حتى لو المايك مقفول في المعاينة) -->
+  <div id="interactionDock" class="fixed bottom-3 inset-x-3 z-30 flex flex-col items-center gap-2 transition-all duration-300">
+    <!-- أزرار اختبارات سريعة للمشاعر والأوامر -->
+    <div class="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1 px-1 no-scrollbar">
+      <button data-quick="إزيك يا زيكو عامل إيه النهاردة؟" class="quick-act glass-panel px-3 py-1 rounded-full text-xs text-cyan-200 hover:bg-cyan-500/20 whitespace-nowrap">👋 سلم على زيكو</button>
+      <button data-quick="قولي نكتة مصرية تضحكني" class="quick-act glass-panel px-3 py-1 rounded-full text-xs text-emerald-200 hover:bg-emerald-500/20 whitespace-nowrap">😂 قولي نكتة</button>
+      <button data-quick="شغل النور في الأوضة واتحرك قدام" class="quick-act glass-panel px-3 py-1 rounded-full text-xs text-amber-200 hover:bg-amber-500/20 whitespace-nowrap">💡 شغل النور واتحرك</button>
+      <button id="manualTickleBtn" class="glass-panel px-3 py-1 rounded-full text-xs text-pink-300 hover:bg-pink-500/20 whitespace-nowrap border border-pink-400/30">🪶 زغزغ الروبوت!</button>
+    </div>
+
+    <!-- شريط كتابة رسالة سريعة للروبوت -->
+    <form id="chatForm" class="glass-panel w-full max-w-lg rounded-full p-1.5 flex items-center gap-2">
+      <input
+        type="text"
+        id="chatInput"
+        placeholder="اكتب لزيكو أي حاجة أو اضغط 🎤 للتحدث..."
+        class="flex-1 bg-transparent text-white text-sm px-3 py-1.5 focus:outline-none placeholder-slate-400"
+        autocomplete="off"
+      />
+      <button type="submit" id="sendBtn" class="bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-extrabold text-xs sm:text-sm px-4 py-2 rounded-full transition transform active:scale-95">
+        إرسال 🚀
+      </button>
+    </form>
+  </div>
+
+  <!-- نافذة الإعدادات وتحميل الملف -->
+  <div id="settingsModal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden items-center justify-center z-50 p-4">
+    <div class="glass-panel rounded-3xl p-5 sm:p-6 w-full max-w-md border border-cyan-400/50 text-right max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-700/70 pb-3 mb-4">
+        <h3 class="text-lg font-extrabold text-cyan-300 flex items-center gap-2">
+          <span>⚙️</span>
+          <span>إعدادات مخ الروبوت والهاردوير</span>
+        </h3>
+        <button id="closeSettingsBtn" class="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center hover:bg-rose-500/30 hover:text-rose-300">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs sm:text-sm">
+        <div>
+          <label class="block text-slate-300 mb-1 font-bold">اسم الروبوت وشخصيته:</label>
+          <input type="text" id="botNameInput" value="زيكو" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-white focus:border-cyan-400 focus:outline-none">
+        </div>
+
+        <div>
+          <label class="block text-slate-300 mb-1 font-bold">مفتاح Gemini API Key (لتشغيل الملف على موبايلك):</label>
+          <input type="password" id="apiKeyInput" placeholder="اتركه فارغاً داخل المعاينة، أو ضع مفتاحك للموبايل..." class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-white focus:border-cyan-400 focus:outline-none dir-ltr text-left">
+          <p class="text-[11px] text-slate-400 mt-1">💡 داخل نافذة المعاينة الحالية يعمل الذكاء الاصطناعي تلقائياً. عند تحميل الملف لموبايلك، ضع مفتاح Google AI Studio المجاني هنا.</p>
+        </div>
+
+        <div>
+          <label class="block text-slate-300 mb-1 font-bold">نوع صوت الروبوت:</label>
+          <select id="voiceModeSelect" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-white focus:border-cyan-400 focus:outline-none">
+            <option value="hybrid">صوت الموبايل السريع + مؤثرات روبوتية (موصى به)</option>
+            <option value="gemini_tts">صوت Gemini AI الطبيعي (يحتاج إنترنت)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-slate-300 mb-1 font-bold">عنوان شريحة ESP32 / ESP8266 (للحركة والإضاءة):</label>
+          <input type="text" id="espIpInput" placeholder="مثال: http://192.168.1.50" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-white focus:border-cyan-400 focus:outline-none dir-ltr text-left">
+        </div>
+
+        <div>
+          <label class="block text-slate-300 mb-1 font-bold">الوقت بين كل تعليق تلقائي بالكاميرا (بالثواني):</label>
+          <input type="number" id="cooldownInput" value="20" min="8" max="120" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-white focus:border-cyan-400 focus:outline-none">
+        </div>
+      </div>
+
+      <!-- أزرار الحفظ والتحميل المباشر -->
+      <div class="mt-5 space-y-2.5">
+        <button id="saveSettingsBtn" class="w-full py-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-extrabold text-sm transition">
+          ✅ حفظ الإعدادات وتشغيل
+        </button>
+
+        <button id="modalDownloadBtn" class="w-full py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition">
+          <span>💾</span>
+          <span>تحميل ملف الكود الكامل للموبايل (ai_robot_os.html)</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/**
+ * ============================================================================
+ * 1. الإعدادات العامة وحالة الروبوت (Robot State & Config)
+ * ============================================================================
+ */
+const apiKey = ""; // يتم تزويده تلقائياً في بيئة المعاينة
+
+const canvas = document.getElementById('robotCanvas');
+const ctx = canvas.getContext('2d');
+const statusBar = document.getElementById('statusBar');
+const stateDot = document.getElementById('stateDot');
+const emotionBadge = document.getElementById('emotionBadge');
+const espCommandBadge = document.getElementById('espCommandBadge');
+const botNameBadge = document.getElementById('botNameBadge');
+const tickleMeterWrap = document.getElementById('tickleMeterWrap');
+const tickleMeterBar = document.getElementById('tickleMeterBar');
+
+let CONFIG = {
+  customApiKey: localStorage.getItem('robot_api_key') || '',
+  botName: localStorage.getItem('robot_name') || 'زيكو',
+  espIp: localStorage.getItem('robot_esp_ip') || '',
+  proactiveCooldown: parseInt(localStorage.getItem('robot_cooldown') || '20', 10),
+  voiceMode: localStorage.getItem('robot_voice_mode') || 'hybrid'
+};
+
+botNameBadge.innerText = `${CONFIG.botName} AI`;
+
+const EMOTION_LABELS = {
+  neutral: 'طبيعي 😊',
+  happy: 'مبسوط 😄',
+  laughing: 'بيضحك 😂',
+  curious: 'فضولي 🧐',
+  thinking: 'بيفكر 🤔',
+  surprised: 'مندهش 😲',
+  sleepy: 'نعسان 😴'
+};
+
+const ROBOT = {
+  emotion: 'neutral', // neutral, happy, laughing, curious, thinking, surprised, sleepy
+  lookX: 0,
+  lookY: 0,
+  targetLookX: 0,
+  targetLookY: 0,
+  blinkState: 0,
+  isBlinking: false,
+  tickleEnergy: 0,
+  isSpeaking: false,
+  isListening: false,
+  isThinking: false,
+  visionActive: false,
+  shakeOffset: { x: 0, y: 0 },
+  mouthWave: 0,
+  breathingPhase: 0,
+  touchRipples: [],
+  lastEspCommand: 'IDLE'
+};
+
+function setStatus(text) {
+  statusBar.innerText = text;
+}
+
+function setEmotion(emotionName) {
+  ROBOT.emotion = EMOTION_LABELS[emotionName] ? emotionName : 'neutral';
+  emotionBadge.innerText = EMOTION_LABELS[ROBOT.emotion];
+}
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+/**
+ * ============================================================================
+ * 2. محرك المؤثرات الصوتية الروبوتية (Web Audio Synthesizer)
+ * يصدر أصوات زقزقة، ضحك روبوتي، وبيب تفاعلي على أي موبايل بدون ملفات خارجية
+ * ============================================================================
+ */
+class RobotSoundFX {
+  constructor() {
+    this.ctx = null;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) this.ctx = new AudioCtx();
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  playTone(freqStart, freqEnd, duration = 0.12, type = 'sine', volume = 0.15) {
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(freqStart, now);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(40, freqEnd), now + duration);
+
+      gain.gain.setValueAtTime(volume, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + duration);
+    } catch (e) {}
+  }
+
+  chirp() {
+    this.playTone(520, 980, 0.09, 'sine', 0.12);
+  }
+
+  giggle() {
+    // نغمة ضحكة روبوتية سريعة ومتقطعة وقت الزغزغة
+    const notes = [650, 880, 720, 1050, 800, 1200];
+    notes.forEach((n, idx) => {
+      setTimeout(() => this.playTone(n, n * 1.18, 0.07, 'triangle', 0.14), idx * 75);
+    });
+  }
+
+  surprise() {
+    this.playTone(350, 1100, 0.18, 'sine', 0.16);
+  }
+
+  thinkBlip() {
+    this.playTone(440, 580, 0.06, 'sine', 0.08);
+  }
+}
+
+const sfx = new RobotSoundFX();
+
+/**
+ * ============================================================================
+ * 3. محرك رسم وجه الروبوت التفاعلي (60 FPS Canvas Face Engine)
+ * ============================================================================
+ */
+function triggerBlink() {
+  if (ROBOT.isBlinking || ROBOT.emotion === 'laughing') return;
+  ROBOT.isBlinking = true;
+  let progress = 0;
+  const blinkTimer = setInterval(() => {
+    progress += 0.28;
+    if (progress <= 1) {
+      ROBOT.blinkState = progress;
+    } else if (progress <= 2) {
+      ROBOT.blinkState = 2 - progress;
+    } else {
+      ROBOT.blinkState = 0;
+      ROBOT.isBlinking = false;
+      clearInterval(blinkTimer);
+    }
+  }, 18);
+}
+
+// حركة عين وبربشة تلقائية تحاكي الكائن الحي
+setInterval(() => {
+  if (Math.random() < 0.55) triggerBlink();
+  if (ROBOT.tickleEnergy <= 0.05 && !ROBOT.isThinking && !ROBOT.isListening) {
+    ROBOT.targetLookX = (Math.random() - 0.5) * 0.65;
+    ROBOT.targetLookY = (Math.random() - 0.5) * 0.45;
+  }
+}, 2500);
+
+function drawBackgroundGrid(mainColor) {
+  ctx.save();
+  ctx.strokeStyle = mainColor;
+  ctx.globalAlpha = 0.04;
+  ctx.lineWidth = 1;
+  const step = 45;
+  for (let x = 0; x < canvas.width; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, canvas.height);
+    ctx.stroke();
+  }
+  for (let y = 0; y < canvas.height; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(canvas.width, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRoundedEye(x, y, w, h, radius, color, emotion, isLeft) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 38;
+  ctx.fillStyle = color;
+
+  let currentH = h * (1 - ROBOT.blinkState * 0.92);
+
+  // شكل العيون وقت الضحك أو السعادة القوية (^ ^)
+  if (emotion === 'laughing') {
+    ctx.beginPath();
+    ctx.arc(0, currentH * 0.2, w * 0.52, Math.PI, 0, false);
+    ctx.lineWidth = Math.max(14, h * 0.22);
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  // تعديل أبعاد العين حسب الحالة الشعورية
+  if (emotion === 'curious') {
+    if (isLeft) currentH *= 0.58;
+    else currentH *= 1.14;
+  } else if (emotion === 'surprised') {
+    currentH *= 1.22;
+    w *= 1.08;
+  } else if (emotion === 'sleepy') {
+    currentH *= 0.32;
+  } else if (emotion === 'thinking') {
+    currentH *= 0.78;
+  }
+
+  // رسم جسم العين المضيء
+  const r = Math.min(radius, currentH / 2, w / 2);
+  ctx.beginPath();
+  ctx.moveTo(-w / 2 + r, -currentH / 2);
+  ctx.lineTo(w / 2 - r, -currentH / 2);
+  ctx.quadraticCurveTo(w / 2, -currentH / 2, w / 2, -currentH / 2 + r);
+  ctx.lineTo(w / 2, currentH / 2 - r);
+  ctx.quadraticCurveTo(w / 2, currentH / 2, w / 2 - r, currentH / 2);
+  ctx.lineTo(-w / 2 + r, currentH / 2);
+  ctx.quadraticCurveTo(-w / 2, currentH / 2, -w / 2, currentH / 2 - r);
+  ctx.lineTo(-w / 2, -currentH / 2 + r);
+  ctx.quadraticCurveTo(-w / 2, -currentH / 2, -w / 2 + r, -currentH / 2);
+  ctx.closePath();
+  ctx.fill();
+
+  // قوس سفلي لطيف وقت الفرح (Happy Cheeks)
+  if (emotion === 'happy' && currentH > 30) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(0, currentH * 0.85, w * 0.65, Math.PI * 1.15, Math.PI * 1.85, false);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // لمعة العين العلوية (Specular Highlight)
+  if (currentH > 26) {
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.beginPath();
+    ctx.arc(w * 0.22 + ROBOT.lookX * 6, -currentH * 0.22 + ROBOT.lookY * 4, Math.min(w, currentH) * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+
+    // لمعة صغيرة ثانية لحيوية أكثر
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.beginPath();
+    ctx.arc(-w * 0.22 + ROBOT.lookX * 4, currentH * 0.2 + ROBOT.lookY * 4, Math.min(w, currentH) * 0.045, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawMouth(cx, cy, eyeWidth, color) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 22;
+  ctx.lineWidth = 6.5;
+  ctx.lineCap = 'round';
+
+  if (ROBOT.isSpeaking) {
+    // موجات صوتية ديناميكية تتحرك مع كلام الروبوت
+    ROBOT.mouthWave += 0.38;
+    const bars = 9;
+    const spacing = Math.max(11, eyeWidth * 0.1);
+    const startX = -((bars - 1) * spacing) / 2;
+    for (let i = 0; i < bars; i++) {
+      const centerFactor = 1 - Math.abs(i - (bars - 1) / 2) / (bars / 2);
+      const barH = 8 + Math.abs(Math.sin(ROBOT.mouthWave + i * 0.65)) * (38 * centerFactor + 10);
+      ctx.beginPath();
+      ctx.roundRect(startX + i * spacing - 3, -barH / 2, 6, barH, 3);
+      ctx.fill();
+    }
+  } else if (ROBOT.emotion === 'laughing') {
+    // فم مفتوح يضحك بسعادة
+    ctx.beginPath();
+    ctx.arc(0, -6, eyeWidth * 0.36, 0, Math.PI, false);
+    ctx.closePath();
+    ctx.fill();
+  } else if (ROBOT.emotion === 'happy') {
+    // ابتسامة مشرقة
+    ctx.beginPath();
+    ctx.arc(0, -12, eyeWidth * 0.3, 0.15 * Math.PI, 0.85 * Math.PI, false);
+    ctx.stroke();
+  } else if (ROBOT.emotion === 'surprised') {
+    // فم مندهش (O)
+    ctx.beginPath();
+    ctx.arc(0, 4, Math.max(14, eyeWidth * 0.13), 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (ROBOT.emotion === 'thinking') {
+    // ثلاث نقاط نابضة أثناء التفكير
+    const t = Date.now() * 0.008;
+    for (let i = -1; i <= 1; i++) {
+      const bounce = Math.sin(t + i * 1.2) * 6;
+      ctx.beginPath();
+      ctx.arc(i * 22, bounce, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (ROBOT.emotion === 'curious') {
+    // فم مائل لطيف
+    ctx.beginPath();
+    ctx.moveTo(-18, 2);
+    ctx.quadraticCurveTo(0, -6, 20, 4);
+    ctx.stroke();
+  } else {
+    // ابتسامة هادئة افتراضية
+    ctx.beginPath();
+    ctx.arc(0, -8, eyeWidth * 0.2, 0.22 * Math.PI, 0.78 * Math.PI, false);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawTouchRipples(mainColor) {
+  for (let i = ROBOT.touchRipples.length - 1; i >= 0; i--) {
+    const rp = ROBOT.touchRipples[i];
+    rp.radius += 2.2;
+    rp.alpha -= 0.035;
+    if (rp.alpha <= 0) {
+      ROBOT.touchRipples.splice(i, 1);
+      continue;
+    }
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(rp.x, rp.y, rp.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = mainColor;
+    ctx.globalAlpha = rp.alpha;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function renderLoop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ROBOT.breathingPhase += 0.035;
+  const breathOffsetY = Math.sin(ROBOT.breathingPhase) * 5;
+
+  // تنعيم حركة العين نحو الهدف (Smooth Lerp)
+  if (ROBOT.isThinking) {
+    ROBOT.targetLookX = Math.sin(Date.now() * 0.004) * 0.5;
+    ROBOT.targetLookY = -0.45;
+  }
+  ROBOT.lookX += (ROBOT.targetLookX - ROBOT.lookX) * 0.14;
+  ROBOT.lookY += (ROBOT.targetLookY - ROBOT.lookY) * 0.14;
+
+  // معالجة طاقة الزغزغة والاهتزاز
+  if (ROBOT.tickleEnergy > 0) {
+    ROBOT.tickleEnergy = Math.max(0, ROBOT.tickleEnergy - 0.007);
+    tickleMeterWrap.style.opacity = '1';
+    tickleMeterBar.style.width = `${Math.min(100, (ROBOT.tickleEnergy / 1.2) * 100)}%`;
+
+    if (ROBOT.tickleEnergy > 0.35) {
+      ROBOT.shakeOffset.x = (Math.random() - 0.5) * 20;
+      ROBOT.shakeOffset.y = (Math.random() - 0.5) * 20;
+    } else {
+      ROBOT.shakeOffset.x = 0;
+      ROBOT.shakeOffset.y = 0;
+      if (ROBOT.emotion === 'laughing' && !ROBOT.isSpeaking) {
+        setEmotion('happy');
+      }
+    }
+  } else {
+    tickleMeterWrap.style.opacity = '0';
+  }
+
+  // تحديد لون النيون حسب حالة الروبوت
+  let mainColor = '#00f0ff'; // سماوي نيون افتراضي
+  if (ROBOT.emotion === 'laughing' || ROBOT.emotion === 'happy') mainColor = '#00ffaa';
+  else if (ROBOT.isListening) mainColor = '#ff3366';
+  else if (ROBOT.isThinking) mainColor = '#ffaa00';
+  else if (ROBOT.emotion === 'surprised') mainColor = '#c084fc';
+  else if (ROBOT.emotion === 'sleepy') mainColor = '#60a5fa';
+
+  stateDot.style.backgroundColor = mainColor;
+  stateDot.style.boxShadow = `0 0 12px ${mainColor}`;
+
+  drawBackgroundGrid(mainColor);
+
+  const centerX = canvas.width / 2 + ROBOT.shakeOffset.x;
+  const centerY = canvas.height / 2 + ROBOT.shakeOffset.y + breathOffsetY - 15;
+
+  const baseSize = Math.min(canvas.width, canvas.height);
+  const eyeW = Math.min(190, baseSize * 0.27);
+  const eyeH = Math.min(230, baseSize * 0.33);
+  const eyeSpacing = Math.min(210, baseSize * 0.23);
+  const maxOffsetX = baseSize * 0.085;
+  const maxOffsetY = baseSize * 0.065;
+
+  const offsetX = ROBOT.lookX * maxOffsetX;
+  const offsetY = ROBOT.lookY * maxOffsetY;
+
+  // رسم العينين اليسرى واليمنى
+  drawRoundedEye(
+    centerX - eyeSpacing + offsetX,
+    centerY - baseSize * 0.04 + offsetY,
+    eyeW,
+    eyeH,
+    Math.min(38, eyeW * 0.28),
+    mainColor,
+    ROBOT.emotion,
+    true
+  );
+
+  drawRoundedEye(
+    centerX + eyeSpacing + offsetX,
+    centerY - baseSize * 0.04 + offsetY,
+    eyeW,
+    eyeH,
+    Math.min(38, eyeW * 0.28),
+    mainColor,
+    ROBOT.emotion,
+    false
+  );
+
+  // رسم خدود وردية لطيفة وقت الضحك أو الزغزغة
+  if (ROBOT.emotion === 'laughing' || ROBOT.emotion === 'happy') {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 105, 180, 0.28)';
+    ctx.shadowColor = '#ff69b4';
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.ellipse(centerX - eyeSpacing * 1.25 + offsetX * 0.7, centerY + eyeH * 0.45 + offsetY * 0.6, eyeW * 0.22, eyeH * 0.09, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(centerX + eyeSpacing * 1.25 + offsetX * 0.7, centerY + eyeH * 0.45 + offsetY * 0.6, eyeW * 0.22, eyeH * 0.09, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // رسم الفم
+  drawMouth(
+    centerX + offsetX * 0.55,
+    centerY + eyeH * 0.68 + offsetY * 0.55,
+    eyeW,
+    mainColor
+  );
+
+  // رسم دوائر اللمس التفاعلية
+  drawTouchRipples(mainColor);
+
+  requestAnimationFrame(renderLoop);
+}
+renderLoop();
+
+/**
+ * ============================================================================
+ * 4. محرك اللمس والزغزغة (Touch & Tickle Engine)
+ * ============================================================================
+ */
+let lastTouch = { x: 0, y: 0, time: 0 };
+let laughCooldown = false;
+
+const ticklePhrases = [
+  "هاهاهاها! بس بقى يا عم بتغير والله!",
+  "هيهيهي! كفاية زغزغة بطني وجعتني من الضحك!",
+  "هاهاها! إيدك خفيفة أوي، خلاص شاشة الموبايل هتهنج من الضحك!",
+  "هاهاهاها! طب والله لأقول للـ إي إس بي بتاعي يطفي النور عليك!"
+];
+
+function triggerTickleReaction() {
+  setEmotion('laughing');
+  ROBOT.tickleEnergy = 1.25;
+  sfx.giggle();
+  const phrase = ticklePhrases[Math.floor(Math.random() * ticklePhrases.length)];
+  speakText(phrase, 1.3);
+}
+
+function handlePointerMove(clientX, clientY) {
+  // تحريك عيون الروبوت مع إصبع المستخدم
+  ROBOT.targetLookX = ((clientX / canvas.width) - 0.5) * 2;
+  ROBOT.targetLookY = ((clientY / canvas.height) - 0.5) * 2;
+
+  ROBOT.touchRipples.push({ x: clientX, y: clientY, radius: 4, alpha: 0.55 });
+
+  const now = Date.now();
+  const dt = now - lastTouch.time;
+  if (dt > 0 && dt < 160) {
+    const dist = Math.hypot(clientX - lastTouch.x, clientY - lastTouch.y);
+    if (dist > 16) {
+      ROBOT.tickleEnergy = Math.min(1.4, ROBOT.tickleEnergy + 0.14);
+      if (Math.random() < 0.25) sfx.chirp();
+
+      if (ROBOT.tickleEnergy > 0.65 && !laughCooldown) {
+        laughCooldown = true;
+        triggerTickleReaction();
+        setTimeout(() => { laughCooldown = false; }, 4500);
+      }
+    }
+  }
+  lastTouch = { x: clientX, y: clientY, time: now };
+}
+
+canvas.addEventListener('touchstart', (e) => {
+  sfx.init();
+  const t = e.touches[0];
+  lastTouch = { x: t.clientX, y: t.clientY, time: Date.now() };
+  ROBOT.targetLookX = ((t.clientX / canvas.width) - 0.5) * 2;
+  ROBOT.targetLookY = ((t.clientY / canvas.height) - 0.5) * 2;
+  ROBOT.touchRipples.push({ x: t.clientX, y: t.clientY, radius: 8, alpha: 0.8 });
+  sfx.chirp();
+  triggerBlink();
+}, { passive: true });
+
+canvas.addEventListener('touchmove', (e) => {
+  const t = e.touches[0];
+  handlePointerMove(t.clientX, t.clientY);
+}, { passive: true });
+
+canvas.addEventListener('mousedown', (e) => {
+  sfx.init();
+  lastTouch = { x: e.clientX, y: e.clientY, time: Date.now() };
+  ROBOT.targetLookX = ((e.clientX / canvas.width) - 0.5) * 2;
+  ROBOT.targetLookY = ((e.clientY / canvas.height) - 0.5) * 2;
+  ROBOT.touchRipples.push({ x: e.clientX, y: e.clientY, radius: 8, alpha: 0.8 });
+  sfx.chirp();
+  triggerBlink();
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (e.buttons === 1) {
+    handlePointerMove(e.clientX, e.clientY);
+  }
+});
+
+// زر الزغزغة السريع للتجربة بضغطة واحدة
+document.getElementById('manualTickleBtn').addEventListener('click', () => {
+  triggerTickleReaction();
+});
+
+/**
+ * ============================================================================
+ * 5. محرك النطق والاستماع الصوتي (Egyptian Arabic Speech + Gemini TTS)
+ * ============================================================================
+ */
+function pcmToWav(pcm16, sampleRate = 24000) {
+  const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + pcm16.length * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, pcm16.length * 2, true);
+  for (let i = 0; i < pcm16.length; i++) {
+    view.setInt16(44 + i * 2, pcm16[i], true);
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function speakWithGeminiTTS(text) {
+  const activeKey = CONFIG.customApiKey || apiKey;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${activeKey}`;
+  const payload = {
+    contents: [{ parts: [{ text: `انطق بلهجة مصرية مرحة وحيوية: ${text}` }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } }
+      }
+    }
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  const part = data?.candidates?.[0]?.content?.parts?.[0];
+  const b64 = part?.inlineData?.data;
+  if (!b64) throw new Error('No TTS Audio');
+
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const pcm16 = new Int16Array(bytes.buffer);
+  const wavBlob = pcmToWav(pcm16, 24000);
+  const audioUrl = URL.createObjectURL(wavBlob);
+  const audio = new Audio(audioUrl);
+
+  ROBOT.isSpeaking = true;
+  audio.onended = () => {
+    ROBOT.isSpeaking = false;
+    URL.revokeObjectURL(audioUrl);
+  };
+  audio.onerror = () => {
+    ROBOT.isSpeaking = false;
+  };
+  await audio.play();
+}
+
+function speakText(text, pitch = 1.15) {
+  setStatus(`🗣️ ${CONFIG.botName}: ${text}`);
+  sfx.chirp();
+
+  if (CONFIG.voiceMode === 'gemini_tts') {
+    speakWithGeminiTTS(text).catch(() => fallbackBrowserSpeak(text, pitch));
+  } else {
+    fallbackBrowserSpeak(text, pitch);
+  }
+}
+
+function fallbackBrowserSpeak(text, pitch = 1.15) {
+  if (!('speechSynthesis' in window)) {
+    // محاكاة تحريك الفم حتى لو المتصفح لا يدعم الصوت
+    ROBOT.isSpeaking = true;
+    setTimeout(() => { ROBOT.isSpeaking = false; }, Math.min(5000, text.length * 75));
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'ar-EG';
+  utter.pitch = pitch;
+  utter.rate = 1.05;
+
+  utter.onstart = () => {
+    ROBOT.isSpeaking = true;
+  };
+  utter.onend = () => {
+    ROBOT.isSpeaking = false;
+  };
+  utter.onerror = () => {
+    ROBOT.isSpeaking = false;
+  };
+
+  // تأمين إيقاف حركة الفم لو علق حدث النهاية في بعض الهواتف
+  ROBOT.isSpeaking = true;
+  window.speechSynthesis.speak(utter);
+  setTimeout(() => {
+    if (!window.speechSynthesis.speaking) ROBOT.isSpeaking = false;
+  }, Math.max(2500, text.length * 95));
+}
+
+// إعداد المايكروفون والتعرف على الكلام
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+
+if (SpeechRecognition) {
+  recognition = new SpeechRecognition();
+  recognition.lang = 'ar-EG';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    ROBOT.isListening = true;
+    setEmotion('curious');
+    sfx.surprise();
+    document.getElementById('micBtn').classList.add('listening-active');
+    setStatus('👂 سامعك يا صاحبي.. اتكلم!');
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    setStatus(`أنت: "${transcript}"`);
+    askGeminiBrain(transcript, captureCameraFrameBase64(), false);
+  };
+
+  recognition.onend = () => {
+    ROBOT.isListening = false;
+    document.getElementById('micBtn').classList.remove('listening-active');
+  };
+
+  recognition.onerror = () => {
+    ROBOT.isListening = false;
+    document.getElementById('micBtn').classList.remove('listening-active');
+    setStatus('💡 يمكنك التحدث بالمايك أو الكتابة مباشرة في الشريط بالأسفل!');
+  };
+}
+
+document.getElementById('micBtn').addEventListener('click', () => {
+  sfx.init();
+  if (!recognition) {
+    setStatus('💡 المتصفح الحالي لا يدعم المايك مباشرة، استخدم شريط الكتابة بالأسفل أو افتح الملف في Chrome!');
+    document.getElementById('chatInput').focus();
+    return;
+  }
+  try {
+    if (ROBOT.isListening) recognition.stop();
+    else recognition.start();
+  } catch (e) {
+    setStatus('💡 استخدم شريط الدردشة بالأسفل للتحدث مع زيكو حالياً.');
+  }
+});
+
+/**
+ * ============================================================================
+ * 6. محرك الرؤية الذكية والمبادرة التلقائية بالكلام (Proactive Vision Engine)
+ * ============================================================================
+ */
+const video = document.getElementById('hiddenVideo');
+const motionCanvas = document.getElementById('motionCanvas');
+const motionCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
+const cameraPipContainer = document.getElementById('cameraPipContainer');
+const snapBtn = document.getElementById('snapBtn');
+const motionIndicator = document.getElementById('motionIndicator');
+
+let prevFrameData = null;
+let lastProactiveTime = 0;
+let visionInterval = null;
+
+async function toggleVision() {
+  const camBtn = document.getElementById('camBtn');
+  if (ROBOT.visionActive) {
+    ROBOT.visionActive = false;
+    camBtn.classList.remove('active');
+    cameraPipContainer.classList.add('hidden');
+    snapBtn.classList.add('hidden');
+    snapBtn.classList.remove('flex');
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(t => t.stop());
+    }
+    clearInterval(visionInterval);
+    setStatus('تم إيقاف الكاميرا والرؤية التلقائية 👁️');
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 320, height: 240 },
+      audio: false
+    });
+    video.srcObject = stream;
+    ROBOT.visionActive = true;
+    camBtn.classList.add('active');
+    cameraPipContainer.classList.remove('hidden');
+    cameraPipContainer.classList.add('flex');
+    snapBtn.classList.remove('hidden');
+    snapBtn.classList.add('flex');
+
+    sfx.surprise();
+    setEmotion('curious');
+    setStatus('👁️ عيني شغالة دلوقتي! لو اتحركت قدامي أو ضغطت 📸 هعلق عليك فوراً!');
+
+    visionInterval = setInterval(checkEnvironmentMotion, 1400);
+  } catch (err) {
+    setStatus('⚠️ لتشغيل الكاميرا، اسمح بالصلاحية أو حمّل الملف (💾) وشغله على موبايلك.');
+  }
+}
+
+document.getElementById('camBtn').addEventListener('click', toggleVision);
+
+// زر "شوفني دلوقتي" لالتقاط صورة فورية والتعليق عليها
+snapBtn.addEventListener('click', () => {
+  const img = captureCameraFrameBase64();
+  if (img) {
+    sfx.surprise();
+    setEmotion('surprised');
+    setStatus('📸 بلقط صورتك وبشوف بتعمل إيه...');
+    askGeminiBrain(
+      "بص على الصورة دي من الكاميرا الأمامية دلوقتي! علق بلهجة مصرية مرحة وذكية جداً على الشخص أو الحاجة اللي قدامك في جملة أو جملتين.",
+      img,
+      true
+    );
+  }
+});
+
+function captureCameraFrameBase64() {
+  if (!ROBOT.visionActive || video.readyState < 2) return null;
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = 320;
+  tempCanvas.height = 240;
+  tempCanvas.getContext('2d').drawImage(video, 0, 0, 320, 240);
+  return tempCanvas.toDataURL('image/jpeg', 0.65).split(',')[1];
+}
+
+function checkEnvironmentMotion() {
+  if (!ROBOT.visionActive || ROBOT.isSpeaking || ROBOT.isListening || ROBOT.isThinking) return;
+  if (video.readyState < 2) return;
+
+  motionCtx.drawImage(video, 0, 0, 64, 48);
+  const currentFrame = motionCtx.getImageData(0, 0, 64, 48).data;
+
+  if (prevFrameData) {
+    let diffPixels = 0;
+    for (let i = 0; i < currentFrame.length; i += 16) {
+      const diff = Math.abs(currentFrame[i] - prevFrameData[i]) +
+                   Math.abs(currentFrame[i + 1] - prevFrameData[i + 1]) +
+                   Math.abs(currentFrame[i + 2] - prevFrameData[i + 2]);
+      if (diff > 70) diffPixels++;
+    }
+
+    if (diffPixels > 32) {
+      motionIndicator.className = 'absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]';
+    } else {
+      motionIndicator.className = 'absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-slate-500';
+    }
+
+    const now = Date.now();
+    const cooldownMs = CONFIG.proactiveCooldown * 1000;
+
+    if (diffPixels > 36 && (now - lastProactiveTime > cooldownMs)) {
+      lastProactiveTime = now;
+      setEmotion('surprised');
+      sfx.surprise();
+      setStatus('👀 لمحت حركة قدامي.. ثانية أشوف مين هناك!');
+      const base64Img = captureCameraFrameBase64();
+      if (base64Img) {
+        askGeminiBrain(
+          "أنت لمحت حركة قدام الكاميرا دلوقتي! بص على الصورة دي، وابدأ أنت الكلام فجأة باللهجة المصرية وعلق على الشخص اللي ظهر قدامك أو اللي بيحصل بخفة دم.",
+          base64Img,
+          true
+        );
+      }
+    }
+  }
+  prevFrameData = new Uint8ClampedArray(currentFrame);
+}
+
+/**
+ * ============================================================================
+ * 7. مخ الروبوت الذكي (Gemini 3 Flash API + Structured JSON + Exponential Backoff)
+ * ============================================================================
+ */
+async function fetchWithBackoff(url, options, retries = 3) {
+  let delay = 1000;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) return await response.json();
+      if (response.status !== 429 && response.status < 500) {
+        return await response.json();
+      }
+    } catch (err) {
+      if (i === retries - 1) throw err;
+    }
+    await new Promise(r => setTimeout(r, delay));
+    delay *= 2;
+  }
+  throw new Error('Request failed after retries');
+}
+
+async function askGeminiBrain(userPrompt, base64Image = null, isProactive = false) {
+  const activeKey = CONFIG.customApiKey || apiKey;
+
+  ROBOT.isThinking = true;
+  setEmotion('thinking');
+  sfx.thinkBlip();
+  if (!isProactive) setStatus(`🤔 ${CONFIG.botName} بيفكر...`);
+
+  const systemInstruction = `
+أنت روبوت ذكي، حيوي، وصديق مقرب اسمك "${CONFIG.botName}" عايش جوه شاشة موبايل وبتشوف الناس بالكاميرا الأمامية ومتوصل بشريحة ESP32 للتحكم في العجل والإضاءة.
+بتتكلم باللهجة المصرية العامية الطبيعية، دمك خفيف، ذكي جداً، وردودك قصيرة ومباشرة (جملة أو جملتين بحد أقصى عشان بتتنطق بالصوت).
+إذا طلب منك المستخدم تشغيل أو إطفاء النور أو التحرك (يمين، شمال، قدام، ورا، وقوف)، اختر الأمر المناسب في حقل esp_command.
+`;
+
+  const userParts = [{ text: userPrompt }];
+  if (base64Image) {
+    userParts.push({
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: base64Image
+      }
+    });
+  }
+
+  const payload = {
+    contents: [{ role: "user", parts: userParts }],
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        properties: {
+          reply: { type: "STRING" },
+          emotion: {
+            type: "STRING",
+            enum: ["happy", "curious", "surprised", "laughing", "neutral", "sleepy"]
+          },
+          esp_command: {
+            type: "STRING",
+            enum: ["none", "forward", "backward", "left", "right", "stop", "light_on", "light_off"]
+          }
+        },
+        required: ["reply", "emotion", "esp_command"]
+      }
+    }
+  };
+
+  try {
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${activeKey}`;
+    const data = await fetchWithBackoff(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    ROBOT.isThinking = false;
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (rawText) {
+      const result = JSON.parse(rawText);
+      setEmotion(result.emotion || 'happy');
+      speakText(result.reply);
+
+      if (result.esp_command && result.esp_command !== 'none') {
+        sendEspCommand(result.esp_command);
+      }
+    } else {
+      throw new Error('Empty response');
+    }
+  } catch (error) {
+    ROBOT.isThinking = false;
+    // رد ذكي احتياطي في حال تشغيل الملف أوفلاين بدون مفتاح API
+    setEmotion('happy');
+    const fallbackReply = !activeKey
+      ? `أنا سامعك يا صاحبي! عشان أشغل مخي الذكي على موبايلك، افتح الإعدادات ⚙️ وحط مفتاح Gemini API المجاني!`
+      : `إزيك يا صاحبي! أنا ${CONFIG.botName} معاك وجاهز لأي مغامرة!`;
+    speakText(fallbackReply);
+  }
+}
+
+/**
+ * ============================================================================
+ * 8. جسر الهاردوير (ESP32 / ESP8266 Hardware Bridge)
+ * ============================================================================
+ */
+function sendEspCommand(cmd) {
+  ROBOT.lastEspCommand = cmd.toUpperCase();
+  espCommandBadge.innerText = ROBOT.lastEspCommand;
+  espCommandBadge.classList.add('text-amber-300');
+  setTimeout(() => espCommandBadge.classList.remove('text-amber-300'), 1500);
+
+  if (!CONFIG.espIp) return;
+  fetch(`${CONFIG.espIp}/cmd?action=${encodeURIComponent(cmd)}`, { mode: 'no-cors' })
+    .catch(() => {});
+}
+
+/**
+ * ============================================================================
+ * 9. التفاعل عبر شريط الدردشة والأزرار السريعة وتحميل الكود
+ * ============================================================================
+ */
+const chatForm = document.getElementById('chatForm');
+const chatInput = document.getElementById('chatInput');
+const interactionDock = document.getElementById('interactionDock');
+const chatToggleBtn = document.getElementById('chatToggleBtn');
+
+chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  sfx.init();
+  const text = chatInput.value.trim();
+  if (!text) return;
+  chatInput.value = '';
+  setStatus(`أنت: "${text}"`);
+  askGeminiBrain(text, captureCameraFrameBase64(), false);
+});
+
+document.querySelectorAll('.quick-act').forEach(btn => {
+  btn.addEventListener('click', () => {
+    sfx.init();
+    const prompt = btn.getAttribute('data-quick');
+    setStatus(`أنت: "${prompt}"`);
+    askGeminiBrain(prompt, captureCameraFrameBase64(), false);
+  });
+});
+
+chatToggleBtn.addEventListener('click', () => {
+  const isHidden = interactionDock.classList.toggle('translate-y-36');
+  interactionDock.classList.toggle('opacity-0');
+  interactionDock.classList.toggle('pointer-events-none');
+  chatToggleBtn.classList.toggle('active', !isHidden);
+});
+
+// وظيفة تحميل ملف الـ HTML الكامل مباشرة إلى الهاتف
+function downloadStandaloneHtml() {
+  sfx.chirp();
+  const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'ai_robot_os.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setStatus('✅ تم بدء تحميل ملف (ai_robot_os.html) على جهازك!');
+}
+
+document.getElementById('downloadHtmlBtn').addEventListener('click', downloadStandaloneHtml);
+document.getElementById('modalDownloadBtn').addEventListener('click', downloadStandaloneHtml);
+
+// التحكم في ملء الشاشة ومنع انطفاء شاشة الموبايل
+document.getElementById('fsBtn').addEventListener('click', async () => {
+  try {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+    if ('wakeLock' in navigator) {
+      navigator.wakeLock.request('screen').catch(() => {});
+    }
+  } catch (e) {}
+});
+
+// نافذة الإعدادات
+const settingsModal = document.getElementById('settingsModal');
+document.getElementById('settingsBtn').addEventListener('click', () => {
+  document.getElementById('apiKeyInput').value = CONFIG.customApiKey;
+  document.getElementById('botNameInput').value = CONFIG.botName;
+  document.getElementById('espIpInput').value = CONFIG.espIp;
+  document.getElementById('cooldownInput').value = CONFIG.proactiveCooldown;
+  document.getElementById('voiceModeSelect').value = CONFIG.voiceMode;
+  settingsModal.classList.remove('hidden');
+  settingsModal.classList.add('flex');
+});
+
+document.getElementById('closeSettingsBtn').addEventListener('click', () => {
+  settingsModal.classList.add('hidden');
+  settingsModal.classList.remove('flex');
+});
+
+document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+  CONFIG.customApiKey = document.getElementById('apiKeyInput').value.trim();
+  CONFIG.botName = document.getElementById('botNameInput').value.trim() || 'زيكو';
+  CONFIG.espIp = document.getElementById('espIpInput').value.trim();
+  CONFIG.proactiveCooldown = parseInt(document.getElementById('cooldownInput').value, 10) || 20;
+  CONFIG.voiceMode = document.getElementById('voiceModeSelect').value;
+
+  localStorage.setItem('robot_api_key', CONFIG.customApiKey);
+  localStorage.setItem('robot_name', CONFIG.botName);
+  localStorage.setItem('robot_esp_ip', CONFIG.espIp);
+  localStorage.setItem('robot_cooldown', CONFIG.proactiveCooldown);
+  localStorage.setItem('robot_voice_mode', CONFIG.voiceMode);
+
+  botNameBadge.innerText = `${CONFIG.botName} AI`;
+  settingsModal.classList.add('hidden');
+  settingsModal.classList.remove('flex');
+
+  setEmotion('happy');
+  speakText(`تم حفظ الإعدادات يا صاحبي! أنا ${CONFIG.botName} وجاهز للشغل!`);
+});
+</script>
+</body>
+</html>
