@@ -119,7 +119,7 @@ face.addEventListener('pointerup',up);
 face.addEventListener('pointercancel',up);
 
 // ===== Gemini conversation =====
-const MODEL='gemini-2.5-flash';
+const MODEL='gemini-3.8-flash';
 const URL_=`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const SYS='إنت روبوت صغير ودود اسمك روبو، بتتكلم باللهجة المصرية، وردودك قصيرة جملة أو اتنين بس. لو في صورة مرفقة فدي اللي إنت شايفه قدامك من الكاميرا. ابدأ كل رد بوسم واحد بس من دول: [happy] [laugh] [surprise] [idle] حسب مشاعرك، وبعده الكلام. من غير إيموجي ولا رموز ولا تنسيق.';
 const KEY='robot_gkey';let apiKey='';try{apiKey=(localStorage.getItem(KEY)||'').replace(/[^\x21-\x7E]/g,'')}catch(e){}
